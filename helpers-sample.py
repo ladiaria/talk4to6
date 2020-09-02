@@ -9,7 +9,7 @@ def user_id_map(user_id):
     """
     This function should return a tuple with the new id and username for the migrated user.
     """
-    return (user_id, user_id)
+    return (user_id, v4db.users.find({'id': user_id})['username'])
 
 
 def story_id_map(asset_id):

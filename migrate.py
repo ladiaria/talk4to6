@@ -52,7 +52,7 @@ def migrate_user(user_id, update=False, print_only=False):
                 'createdAt': v4user['status']['username']['history'][0]['created_at']}]
         v6user['profiles'] = profiles
         if DEBUG:
-            print('\nDEBUG: migrating user %s to v6 with the following data:' % user_id)
+            print('\nDEBUG: migrating user "%s" to v6 with the following data:' % user_id)
             pprint(v6user)
         if not print_only:
             v6db.users.update_one({'id': v6user_id}, {'$set': v6user}, upsert=True)
@@ -86,27 +86,11 @@ def migrate_comment(comment_id, parent_id=None, print_only=False):
         assert v6author_id, 'Author could not be mapped to v6, skipping.'
 
         v6comment = {
-            'id': comment_id,
-            'tenantID': TENNANT_ID,
-            "childIDs": [],
-            'childCount': 0,
-            'revisions': [{
-                'id': str(uuid4()),
-                'body': '<div>%s</div>' % v4comment['body'],
-                'actionCounts': {},
-                'metadata': {
-                    'nudge': True,
-                    'linkCount': 0
-                },
-                'createdAt': v4comment['created_at']
-            }],
-            'createdAt': v4comment['created_at'],
-            'storyID': story_id_map(v4comment['asset_id'])[0],
-            'authorID': v6author_id,
-            'siteID': SITE_ID,
-            'tags': [],
-            'status': "NONE",
-            'ancestorIDs': [],
+            'id': comment_id, 'tenantID': TENNANT_ID, 'childIDs': [], 'childCount': 0, 'revisions': [{
+                'id': str(uuid4()), 'body': '<div>%s</div>' % v4comment['body'], 'actionCounts': {},
+                'metadata': {'nudge': True, 'linkCount': 0}, 'createdAt': v4comment['created_at']
+            }], 'createdAt': v4comment['created_at'], 'storyID': story_id_map(v4comment['asset_id'])[0],
+            'authorID': v6author_id, 'siteID': SITE_ID, 'tags': [], 'status': "NONE", 'ancestorIDs': [],
             'actionCounts': {}
         }
 
@@ -120,7 +104,7 @@ def migrate_comment(comment_id, parent_id=None, print_only=False):
                 'ancestorIDs': [parent_id]})
 
         if DEBUG:
-            print('\nDEBUG: Migrating comment with the following data:')
+            print('\nDEBUG: Migrating comment to v6 with the following data:')
             pprint(v6comment)
 
         if not print_only:
@@ -144,7 +128,7 @@ def migrate_story(asset_id, print_only=False):
             'commentCounts': {'action': {}, 'status': {'APPROVED': 0, 'NONE': 0}, 'moderationQueue': {'total': 0}},
             'createdAt': asset['created_at'], 'id': story_id, 'settings': {}, 'siteID': SITE_ID, 'closedAt': False}
         if DEBUG:
-            print('\nDEBUG: Migrating story with the following data:')
+            print('\nDEBUG: Migrating asset "%s" to a v6 story with the following data:' % asset_id)
             pprint(story)
         if not print_only:
             v6db.stories.insert_one(story)
@@ -155,11 +139,11 @@ def migrate_story(asset_id, print_only=False):
 
 def migrate(print_only=False):
     if DEBUG:
-        print('DEBUG: Migrating all parent (root level) comments ...')
+        print('DEBUG: Migrating all parent (root level) comments to v6 ...')
 
     v4comments = v4db.comments.find({'status': "ACCEPTED", 'parent_id': None}, no_cursor_timeout=True)
 
-    bar, not_migrated = Bar('Migrating ...', max=v4comments.count()), []
+    bar, not_migrated = Bar('Migrating ...', max=v4comments.count()), set()
 
     for v4comment in v4comments:
         v4comment_id = v4comment['id']
@@ -167,7 +151,7 @@ def migrate(print_only=False):
             try:
                 migrate_user(v4comment['author_id'], print_only=print_only)
             except Exception:
-                not_migrated.append(v4comment_id)
+                not_migrated.add(v4comment_id)
                 print('\nERROR: Author of comment %s could not be migrated, skipping.' % v4comment_id)
                 bar.next()
                 continue
@@ -175,7 +159,7 @@ def migrate(print_only=False):
             try:
                 migrate_story(v4comment['asset_id'], print_only=print_only)
             except Exception:
-                not_migrated.append(v4comment_id)
+                not_migrated.add(v4comment_id)
                 print('\nERROR: Story of comment %s could not be migrated, skipping.' % v4comment_id)
                 bar.next()
                 continue
@@ -183,7 +167,7 @@ def migrate(print_only=False):
             try:
                 migrate_comment(v4comment_id, print_only=print_only)
             except Exception:
-                not_migrated.append(v4comment_id)
+                not_migrated.add(v4comment_id)
                 print('\nERROR: Comment %s could not be migrated, skipping.' % v4comment_id)
                 bar.next()
                 continue
@@ -196,7 +180,7 @@ def migrate(print_only=False):
     bar.finish()
 
     if DEBUG:
-        print('\nDEBUG: Migrating all child comments ...')
+        print('\nDEBUG: Migrating all child comments to v6 ...')
 
     v4comments = v4db.comments.find({'status': "ACCEPTED", 'parent_id': {'$ne': None}}, no_cursor_timeout=True)
 
@@ -216,28 +200,38 @@ def migrate(print_only=False):
                 parent_id = v4comment['parent_id']
 
                 if parent_id in not_migrated:
-                    not_migrated.append(v4comment_id)
+                    not_migrated.add(v4comment_id)
                 else:
                     if comment_migrated(parent_id):
 
                         try:
                             migrate_user(v4comment['author_id'], print_only=print_only)
                         except Exception:
-                            not_migrated.append(v4comment_id)
-                            children.remove(v4comment_id)
+                            not_migrated.add(v4comment_id)
+                            if v4comment_id in children:
+                                children.remove(v4comment_id)
                             print('ERROR: Author of comment %s could not be migrated, skipping.' % v4comment_id)
                             continue
 
                         try:
                             migrate_comment(v4comment_id, parent_id, print_only=print_only)
                         except Exception:
-                            not_migrated.append(v4comment_id)
+                            not_migrated.add(v4comment_id)
                             print('ERROR: Comment %s could not be migrated, skipping.' % v4comment_id)
 
                     else:
-                        continue
+                        if not v4db.comments.find_one({'id': parent_id, 'status': 'ACCEPTED'}):
+                            # If parent is not accepted this child will not be migrated
+                            not_migrated.add(v4comment_id)
+                        else:
+                            # Also considering if print_only is True the parent will be never migrated
+                            if print_only:
+                                print('Parent comment "%s" not migrated (print_only mode), skipping.' % parent_id)
+                            else:
+                                continue
 
-            children.remove(v4comment_id)
+            if v4comment_id in children:
+                children.remove(v4comment_id)
 
     if not_migrated:
         print('Comments not migrated: %s' % not_migrated)

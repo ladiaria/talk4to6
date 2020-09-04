@@ -56,6 +56,8 @@ def migrate_user(user_id, update=False, print_only=False):
             pprint(v6user)
         if not print_only:
             v6db.users.update_one({'id': v6user_id}, {'$set': v6user}, upsert=True)
+    elif DEBUG:
+        print('\nDEBUG: User "%s" already migrated.' % user_id)
 
 
 def inc_comment_count(story_id):

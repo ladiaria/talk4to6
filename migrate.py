@@ -70,7 +70,6 @@ def migrate_comment(comment_id, parent_id=None, print_only=False):
     """
     Migrates a comment, if parent_id has value the comment will be migrated as a child comment of thah parent.
     if print_only is True nothing will be saved and the data will be printed only, if DEBUG is True.
-    Precondition: the comment story should have been migrated before.
     """
     if comment_migrated(comment_id):
         if DEBUG:
